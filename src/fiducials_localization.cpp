@@ -81,7 +81,8 @@ Fiducials fiducials;
 std::string tag_height_file;
 
 void tag_announce(void *rviz, int id,
-  double x, double y, double z, double twist, double dx, double dy, double dz) {
+  double x, double y, double z, double twist, double dx, double dy, double dz,
+  int visible) {
     ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f\n",
       id, x, y, twist);
 
@@ -194,7 +195,8 @@ void imageCallback(const sensor_msgs::ImageConstPtr & msg) {
             ROS_INFO("Git first image! Setting up Fiducials library");
             fiducials = Fiducials__create(image, NULL, NULL, location_announce,
               tag_announce);
-            Fiducials__tag_heights_xml_read(fiducials, tag_height_file.c_str());
+            Fiducials__tag_heights_xml_read(fiducials,
+	      (const String)tag_height_file.c_str());
         }
         Fiducials__image_set(fiducials, image);
         Fiducials__process(fiducials);
