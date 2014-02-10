@@ -80,9 +80,25 @@ std_msgs::ColorRGBA position_color;
 Fiducials fiducials;
 std::string tag_height_file;
 
+/// @brief Deal creation and changes to tag parameters.
+/// @param rviz is an opaque *announce_object* that was handed into
+///        Fiducials__create().
+/// @param id is that fiducial tag identifier.
+/// @param x is the X coordinate in absolute coordinate space.
+/// @param y is the Y coordinate in absolute coordinate space.
+/// @param z is the Z coordinate in absolute coordinate space.
+/// @param twist is the fiducial twist amount in radians.
+/// @param diagonal is the fiduical diagonal in camera pixels.
+/// @param distance_per_pixel is the amount of distance each camera
+///        pixel occupies.
+/// @param visible is 1 if the tag is currently in the camera field of view.
+/// @param hop_count is the number arc's between the tag and the origin tag
+///        along the spanning tree.  -1 specifies that the tag is not
+///        connected to the spanning tree (i.e. a partitioned map.)
+
 void tag_announce(void *rviz, int id,
-  double x, double y, double z, double twist, double dx, double dy, double dz,
-  int visible) {
+  double x, double y, double z, double twist,
+  double diagonal, double distance_per_pixel, int visible, int hop_count) {
     ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f\n",
       id, x, y, twist);
 
@@ -101,6 +117,11 @@ void tag_announce(void *rviz, int id,
     marker.pose.position.z = z / scale;
 
     marker.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+
+    // 1.4142... = sqrt(2):
+    double dx = (diagonal * distance_per_pixel) / 1.4142135623730950488016887;
+    double dy = dx;
+    double dz = 1.0;
 
     marker.scale.x = dx / scale;
     marker.scale.y = dy / scale;
@@ -141,6 +162,12 @@ void tag_announce(void *rviz, int id,
     marker.pose.position.z += 0.05;
     marker.ns = fiducial_namespace + "_text";
     marker_pub->publish(marker);
+}
+
+void arc_announce(void *rvis,
+  int from_id, double from_x, double from_y, double from_z,
+  int to_id, double to_x, double to_y, double to_z,
+  double goodness, int in_spanning_tree) {
 }
 
 void location_announce(void *rviz, int id,
@@ -193,8 +220,9 @@ void imageCallback(const sensor_msgs::ImageConstPtr & msg) {
         IplImage *image = new IplImage(cv_img->image);
         if(fiducials == NULL) {
             ROS_INFO("Git first image! Setting up Fiducials library");
-            fiducials = Fiducials__create(image, NULL, NULL, location_announce,
-	    tag_announce, NULL, "Map.xml", tag_height_file.c_str());
+            fiducials = Fiducials__create(image, NULL, NULL,
+	    arc_announce, location_announce, tag_announce,
+	    NULL, "Map.xml", tag_height_file.c_str());
         }
         Fiducials__image_set(fiducials, image);
         Fiducials__process(fiducials);
