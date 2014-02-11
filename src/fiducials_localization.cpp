@@ -35,8 +35,11 @@
 #include <unistd.h>
 
 #include <ros/ros.h>
-#include <tf/tf.h>
-#include <tf/transform_broadcaster.h>
+#include <tf/transform_datatypes.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <visualization_msgs/Marker.h>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
@@ -50,97 +53,96 @@
 #include "fiducials/List.h"
 #include "fiducials/Logical.h"
 
-/// @brief Print out tag update information.
-/// @param anounce_object is an opaque object from *Map*->*announce_object*.
-/// @param id is the tag id.
-/// @param x is the tag X location.
-/// @param y is the tag Y location.
-/// @param z is the tag Z location.
-/// @param twist is the tag twist in radians.
-/// @param dx is the tag size along the X axis (before twist).
-/// @param dy is the tag size along the Y axis (before twist).
-/// @param dz is the tag height in the Z axis.
-///
-/// *Map__tag_announce*() is called each time the map algorithm
-/// updates the location or twist for a *tag*.
+class FiducialsNode {
+  private:
+    ros::Publisher * marker_pub;
 
-ros::Publisher * marker_pub;
-tf::TransformBroadcaster * tf_pub;
+    // transform bits
+    tf2_ros::TransformBroadcaster tf_pub;
+    tf2_ros::Buffer tf_buffer;
+    tf2_ros::TransformListener tf_sub;
 
-std::string world_frame;
-std::string pose_frame;
+    std::string world_frame;
+    std::string pose_frame;
+    std::string odom_frame;
+    bool use_odom;
 
-const double scale = 1000.0;
-std::string fiducial_namespace;
-std::string position_namespace;
+    const double scale;
+    std::string fiducial_namespace;
+    std::string position_namespace;
 
-std_msgs::ColorRGBA tag_color;
-std_msgs::ColorRGBA position_color;
+    std_msgs::ColorRGBA tag_color;
+    std_msgs::ColorRGBA hidden_tag_color;
+    std_msgs::ColorRGBA position_color;
 
-Fiducials fiducials;
-std::string tag_height_file;
+    Fiducials fiducials;
+    std::string tag_height_file;
 
-/// @brief Deal creation and changes to tag parameters.
-/// @param rviz is an opaque *announce_object* that was handed into
-///        Fiducials__create().
-/// @param id is that fiducial tag identifier.
-/// @param x is the X coordinate in absolute coordinate space.
-/// @param y is the Y coordinate in absolute coordinate space.
-/// @param z is the Z coordinate in absolute coordinate space.
-/// @param twist is the fiducial twist amount in radians.
-/// @param diagonal is the fiduical diagonal in camera pixels.
-/// @param distance_per_pixel is the amount of distance each camera
-///        pixel occupies.
-/// @param visible is 1 if the tag is currently in the camera field of view.
-/// @param hop_count is the number arc's between the tag and the origin tag
-///        along the spanning tree.  -1 specifies that the tag is not
-///        connected to the spanning tree (i.e. a partitioned map.)
+    geometry_msgs::Pose scale_position(double x, double y, double z,
+        double theta);
+    visualization_msgs::Marker createMarker(std::string ns, int id);
 
-void tag_announce(void *rviz, int id,
-  double x, double y, double z, double twist,
-  double diagonal, double distance_per_pixel, int visible, int hop_count) {
-    ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f\n",
-      id, x, y, twist);
+    static void tag_announce(void *t, int id, double x, double y, double z,
+        double twist, double dx, double dy, double dz, int visible);
+    void tag_cb(int id, double x, double y, double z, double twist, double dx,
+        double dy, double dz, int visible);
 
+    static void location_announce(void *t, int id, double x, double y,
+        double z, double bearing);
+    void location_cb(int id, double x, double y, double z, double bearing);
+
+    void imageCallback(const sensor_msgs::ImageConstPtr & msg);
+
+  public:
+    FiducialsNode(ros::NodeHandle &nh);
+};
+
+geometry_msgs::Pose FiducialsNode::scale_position(double x, double y, 
+    double z, double theta) {
+  geometry_msgs::Pose res;
+  res.position.x = x / scale;
+  res.position.y = y / scale;
+  res.position.z = z / scale;
+
+  res.orientation = tf::createQuaternionMsgFromYaw(theta);
+
+  return res;
+}
+
+visualization_msgs::Marker FiducialsNode::createMarker(std::string ns, int id) {
     visualization_msgs::Marker marker;
     marker.header.stamp = ros::Time::now();
     marker.header.frame_id = world_frame;
-
-    marker.ns = fiducial_namespace;
+    marker.ns = ns;
     marker.id = id;
-    marker.type = visualization_msgs::Marker::CUBE;
+    return marker;
+}
 
+void FiducialsNode::tag_announce(void *t, int id,
+  double x, double y, double z, double twist, double dx, double dy, double dz,
+  int visible) {
+    ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f\n",
+      id, x, y, twist);
+    FiducialsNode * ths = (FiducialsNode*)t;
+    ths->tag_cb(id, x, y, z, twist, dx, dy, dz, visible);
+}
+
+void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
+    double dx, double dy, double dz, int visible) {
+    visualization_msgs::Marker marker = createMarker(fiducial_namespace, id);
+    marker.type = visualization_msgs::Marker::CUBE;
     marker.action = visualization_msgs::Marker::ADD;
 
-    marker.pose.position.x = x / scale;
-    marker.pose.position.y = y / scale;
-    marker.pose.position.z = z / scale;
-
-    marker.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-
-    // 1.4142... = sqrt(2):
-    double dx = (diagonal * distance_per_pixel) / 1.4142135623730950488016887;
-    double dy = dx;
-    double dz = 1.0;
+    marker.pose = scale_position(x, y, z, 0);
 
     marker.scale.x = dx / scale;
     marker.scale.y = dy / scale;
     marker.scale.z = dz / scale;
 
-    marker.color = tag_color;
-
-    // cycle through tag colors
-    tag_color.r += 0.1;
-    if( tag_color.r > 1.0 ) {
-      tag_color.r = 0.0;
-      tag_color.g += 0.1;
-    }
-    if( tag_color.g > 1.0 ) {
-      tag_color.g = 0.0;
-      tag_color.b += 0.1;
-    }
-    if( tag_color.b > 1.0 ) {
-      tag_color.b = 0.0;
+    if( visible ) {
+      marker.color = tag_color;
+    } else {
+      marker.color = hidden_tag_color;
     }
 
     marker.lifetime = ros::Duration();
@@ -152,14 +154,10 @@ void tag_announce(void *rviz, int id,
     snprintf(str_id, 12, "%d", id);
     marker.text = str_id;
     marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-    marker.color.r = 1.0;
-    marker.color.g = 1.0;
-    marker.color.b = 1.0;
+    marker.color.r = marker.color.g = marker.color.b = 1.0; // white
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.1;
     marker.id = id + 10000;
-    marker.scale.x = 0.1;
-    marker.scale.y = 0.1;
-    marker.scale.z = 0.1;
-    marker.pose.position.z += 0.05;
+    marker.pose.position.z += 0.05; // draw text above marker
     marker.ns = fiducial_namespace + "_text";
     marker_pub->publish(marker);
 }
@@ -170,26 +168,18 @@ void arc_announce(void *rvis,
   double goodness, int in_spanning_tree) {
 }
 
-void location_announce(void *rviz, int id,
-  double x, double y, double z, double bearing) {
+void FiducialsNode::location_cb(int id, double x, double y, double z,
+    double bearing) {
     ROS_INFO("location_announce:id=%d x=%f y=%f bearing=%f\n",
       id, x, y, bearing * 180. / 3.1415926);
 
-    visualization_msgs::Marker marker;
-    marker.header.stamp = ros::Time::now();
-    marker.header.frame_id = world_frame;
+    visualization_msgs::Marker marker = createMarker(world_frame, id);
+    ros::Time now = marker.header.stamp;
 
-    marker.ns = position_namespace;
-    marker.id = id;
     marker.type = visualization_msgs::Marker::ARROW;
-
     marker.action = visualization_msgs::Marker::ADD;
 
-    marker.pose.position.x = x / scale;
-    marker.pose.position.y = y / scale;
-    marker.pose.position.z = z / scale;
-
-    marker.pose.orientation = tf::createQuaternionMsgFromYaw(bearing);
+    marker.pose = scale_position(x, y, z, bearing);
 
     marker.scale.x = 200.0 / scale;
     marker.scale.y = 50.0 / scale;
@@ -200,19 +190,44 @@ void location_announce(void *rviz, int id,
     marker.lifetime = ros::Duration();
 
     marker_pub->publish(marker);
-    tf::Transform transform;
-    transform.setOrigin( tf::Vector3(marker.pose.position.x, 
-                                     marker.pose.position.y,
-                                     marker.pose.position.z));
-    transform.setRotation( tf::Quaternion(marker.pose.orientation.x,
-                                          marker.pose.orientation.y,
-                                          marker.pose.orientation.z,
-                                          marker.pose.orientation.w));
-    tf_pub->sendTransform(tf::StampedTransform(transform, marker.header.stamp,
-          world_frame, pose_frame));
+
+    // publish a transform based on the position
+    geometry_msgs::TransformStamped transform;
+    // TODO: subtract out odometry position, and publish transform from
+    //  map to odom
+    transform.transform.translation.x = marker.pose.position.x;
+    transform.transform.translation.y = marker.pose.position.y;
+    transform.transform.translation.z = marker.pose.position.z;
+    transform.transform.rotation = marker.pose.orientation;
+    transform.header.stamp = now;
+    transform.header.frame_id = world_frame;
+
+    if( use_odom ) {
+      // if we're using odometry, look up the odom transform and subtract it
+      //  from our position so that we can publish a map->odom transform
+      //  such that map->odom->base_link reports the correct position
+      if( tf_buffer.canTransform(odom_frame, pose_frame, now) ) {
+        geometry_msgs::PoseStamped in;
+        in.pose = marker.pose;
+        in.header = marker.header;
+        in.header.frame_id = pose_frame;
+        geometry_msgs::PoseStamped out;
+        tf_buffer.transform(in, out, odom_frame);
+      } else {
+        ROS_WARN("Can't look up base transform from %s to %s",
+            pose_frame.c_str(),
+            odom_frame.c_str());
+      }
+      transform.child_frame_id = odom_frame;
+    } else {
+      // we're publishing absolute position
+      transform.child_frame_id = pose_frame;
+    }
+
+    tf_pub.sendTransform(transform);
 }
 
-void imageCallback(const sensor_msgs::ImageConstPtr & msg) {
+void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
     ROS_INFO("Got image");
     try {
         cv_bridge::CvImageConstPtr cv_img;
@@ -231,14 +246,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr & msg) {
     }
 }
 
-int main(int argc, char ** argv) {
-    struct timeval start_time_value_struct;    
-    struct timeval end_time_value_struct;    
-    struct timeval difference_time_value_struct;    
-    Time_Value start_time_value = &start_time_value_struct;
-    Time_Value end_time_value = &end_time_value_struct;
-    Time_Value difference_time_value = &difference_time_value_struct;
-
+FiducialsNode::FiducialsNode(ros::NodeHandle & nh) : scale(1000.0), tf_sub(tf_buffer) {
     fiducial_namespace = "fiducials";
     position_namespace = "position";
     // Define tags to be green
@@ -247,30 +255,44 @@ int main(int argc, char ** argv) {
     tag_color.b = 0.0f;
     tag_color.a = 1.0f;
 
+    // Define hidden tags to be red
+    hidden_tag_color.r = 1.0f;
+    hidden_tag_color.g = 0.0f;
+    hidden_tag_color.b = 0.0f;
+    hidden_tag_color.a = 1.0f;
+
     // define position ot be blue
     position_color.r = 0.0f;
     position_color.g = 0.0f;
     position_color.b = 1.0f;
     position_color.a = 1.0f;
 
-    world_frame = "map";
-    pose_frame = "base_link";
-
-    ros::init(argc, argv, "fiducials_localization");
-    ros::NodeHandle nh("~");
     nh.param<std::string>("tag_height", tag_height_file, "Tag_Heights.xml");
+    nh.param<std::string>("map_frame", world_frame, "map");
+    if( nh.hasParam("odom_frame") ) {
+      use_odom = true;
+      nh.getParam("odom_frame", odom_frame);
+    } else {
+      use_odom = false;
+    }
+    nh.param<std::string>("pose_frame", pose_frame, "base_link");
 
     marker_pub = new ros::Publisher(nh.advertise<visualization_msgs::Marker>("fiducials", 1));
-
-    tf_pub = new tf::TransformBroadcaster();
 
     fiducials = NULL;
 
     image_transport::ImageTransport img_transport(nh);
     image_transport::Subscriber img_sub = img_transport.subscribe("camera", 1,
-        imageCallback);
+        &FiducialsNode::imageCallback, this);
 
     ROS_INFO("Fiducials Localization ready");
+}
+
+int main(int argc, char ** argv) {
+    ros::init(argc, argv, "fiducials_localization");
+    ros::NodeHandle nh("~");
+
+    FiducialsNode * node = new FiducialsNode(nh);
 
     ros::spin();
 
