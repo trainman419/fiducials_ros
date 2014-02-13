@@ -82,8 +82,12 @@ class FiducialsNode {
         double theta);
     visualization_msgs::Marker createMarker(std::string ns, int id);
 
+    static void arc_announce(void *t, int from_id, double from_x,
+	double from_y, double from_z, int to_id, double to_x, double to_y,
+	double to_z, double goodness, int in_spanning_tree);
     static void tag_announce(void *t, int id, double x, double y, double z,
-        double twist, double dx, double dy, double dz, int visible);
+	double twist, double diagonal, double distance_per_pixel, int visible,
+	int hop_count);
     void tag_cb(int id, double x, double y, double z, double twist, double dx,
         double dy, double dz, int visible);
 
@@ -118,12 +122,21 @@ visualization_msgs::Marker FiducialsNode::createMarker(std::string ns, int id) {
     return marker;
 }
 
-void FiducialsNode::tag_announce(void *t, int id,
-  double x, double y, double z, double twist, double dx, double dy, double dz,
-  int visible) {
+void FiducialsNode::arc_announce(void *t, int from_id, double from_x,
+    double from_y, double from_z, int to_id, double to_x, double to_y,
+    double to_z, double goodness, int in_spanning_tree) {
+}
+
+void FiducialsNode::tag_announce(void *t, int id, double x, double y, double z,
+  double twist, double diagonal, double distance_per_pixel, int visible,
+  int hop_count) {
     ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f\n",
       id, x, y, twist);
     FiducialsNode * ths = (FiducialsNode*)t;
+    // sqrt(2) = 1.414213...
+    double dx = (diagonal * distance_per_pixel) / 1.4142135623730950488016887;
+    double dy = dx;
+    double dz = 1.0;
     ths->tag_cb(id, x, y, z, twist, dx, dy, dz, visible);
 }
 
@@ -162,10 +175,11 @@ void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
     marker_pub->publish(marker);
 }
 
-void arc_announce(void *rvis,
-  int from_id, double from_x, double from_y, double from_z,
-  int to_id, double to_x, double to_y, double to_z,
-  double goodness, int in_spanning_tree) {
+
+void FiducialsNode::location_announce(void * t, int id, double x, double y,
+    double z,double bearing) {
+    FiducialsNode * ths = (FiducialsNode*)t;
+    ths->location_cb(id, x, y, z, bearing);
 }
 
 void FiducialsNode::location_cb(int id, double x, double y, double z,
@@ -298,4 +312,3 @@ int main(int argc, char ** argv) {
 
     return 0;
 }
-
