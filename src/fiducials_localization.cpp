@@ -69,6 +69,9 @@ class FiducialsNode {
     std::string odom_frame;
     bool use_odom;
 
+    // the last frame we saw on the camera header
+    std::string last_camera_frame;
+
     // if set, we publish the images that contain fiducials
     bool publish_images;
     image_transport::Publisher image_pub;
@@ -181,6 +184,18 @@ void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
     marker_pub->publish(marker);
 }
 
+tf2::Transform msg_to_tf(geometry_msgs::TransformStamped &msg) {
+  return tf2::Transform(
+            tf2::Quaternion(
+              msg.transform.rotation.x,
+              msg.transform.rotation.y,
+              msg.transform.rotation.z,
+              msg.transform.rotation.w),
+            tf2::Vector3(
+              msg.transform.translation.x,
+              msg.transform.translation.y,
+              msg.transform.translation.z));
+}
 
 void FiducialsNode::location_announce(void * t, int id, double x, double y,
     double z,double bearing) {
@@ -233,21 +248,27 @@ void FiducialsNode::location_cb(int id, double x, double y, double z,
 
         geometry_msgs::TransformStamped odom;
         odom = tf_buffer.lookupTransform(odom_frame, pose_frame, now);
-        tf2::Transform odom_tf(
-            tf2::Quaternion(
-              odom.transform.rotation.x,
-              odom.transform.rotation.y,
-              odom.transform.rotation.z,
-              odom.transform.rotation.w),
-            tf2::Vector3(
-              odom.transform.translation.x,
-              odom.transform.translation.y,
-              odom.transform.translation.z));
+        tf2::Transform odom_tf = msg_to_tf(odom);
 
         // M = C * O
         // C^-1 * M = O
         // C^-1 = O * M-1
         tf2::Transform odom_correction = (odom_tf * pose.inverse()).inverse();
+
+        // look up camera transform if we can
+        if( last_camera_frame.length() > 0 ) {
+          if( tf_buffer.canTransform(pose_frame, last_camera_frame, now,
+                ros::Duration(0.1), &tf_err) ) {
+            geometry_msgs::TransformStamped camera_tf;
+            camera_tf = tf_buffer.lookupTransform(pose_frame,
+                                                    last_camera_frame, now);
+            tf2::Transform camera = msg_to_tf(camera_tf);
+            odom_correction = odom_correction * camera.inverse();
+          } else {
+            ROS_ERROR("Cannot look up transform from %s to %s: %s",
+                pose_frame.c_str(), last_camera_frame.c_str(), tf_err.c_str());
+          }
+        }
         
         geometry_msgs::TransformStamped transform;
         tf2::Vector3 odom_correction_v = odom_correction.getOrigin();
@@ -292,6 +313,7 @@ void FiducialsNode::location_cb(int id, double x, double y, double z,
 
 void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
     ROS_INFO("Got image");
+    last_camera_frame = msg->header.frame_id;
     try {
         cv_bridge::CvImageConstPtr cv_img;
         cv_img = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
