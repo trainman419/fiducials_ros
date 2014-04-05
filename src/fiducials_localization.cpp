@@ -74,7 +74,12 @@ class FiducialsNode {
 
     // if set, we publish the images that contain fiducials
     bool publish_images;
+
+    // if set, we publish the images that are "interesting", for debugging
+    bool publish_interesting_images;
+
     image_transport::Publisher image_pub;
+    image_transport::Publisher interesting_image_pub;
 
     const double scale;
     std::string fiducial_namespace;
@@ -343,13 +348,14 @@ void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
         Fiducials_Results results = Fiducials__process(fiducials);
 	if (publish_images) {
   	    if (results->map_changed) {
-	      ROS_INFO("+");
 	      image_pub.publish(msg);
             }
-            else {
-              ROS_INFO("-");
-            }
         }
+	if (publish_interesting_images) {
+	  if (results->image_interesting) {
+	    interesting_image_pub.publish(msg);
+	  }
+	}
     } catch(cv_bridge::Exception & e) {
         ROS_ERROR("cv_bridge exception: %s", e.what());
     }
@@ -395,11 +401,16 @@ FiducialsNode::FiducialsNode(ros::NodeHandle & nh) : scale(0.75), tf_sub(tf_buff
     }
 
     nh.param<bool>("publish_images", publish_images, false);
+    nh.param<bool>("publish_interesting_images", publish_interesting_images, 
+		   false);
 
     image_transport::ImageTransport img_transport(nh);
 
     if (publish_images) {
       image_pub = img_transport.advertise("fiducials_images", 1);
+    }
+    if (publish_interesting_images) {
+      interesting_image_pub = img_transport.advertise("interesting_images", 1);
     }
 
     marker_pub = new ros::Publisher(nh.advertise<visualization_msgs::Marker>("fiducials", 1));
