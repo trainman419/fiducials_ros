@@ -74,7 +74,12 @@ class FiducialsNode {
 
     // if set, we publish the images that contain fiducials
     bool publish_images;
+
+    // if set, we publish the images that are "interesting", for debugging
+    bool publish_interesting_images;
+
     image_transport::Publisher image_pub;
+    image_transport::Publisher interesting_image_pub;
 
     const double scale;
     std::string fiducial_namespace;
@@ -106,6 +111,12 @@ class FiducialsNode {
     static void location_announce(void *t, int id, double x, double y,
         double z, double bearing);
     void location_cb(int id, double x, double y, double z, double bearing);
+
+    static void fiducial_announce(void *t,
+    Integer id, Integer direction, Double world_diagonal,
+    Double x1, Double y1, Double x2, Double y2,
+    Double x3, Double y3, Double x4, Double y4);
+
 
     void imageCallback(const sensor_msgs::ImageConstPtr & msg);
 
@@ -150,6 +161,14 @@ void FiducialsNode::tag_announce(void *t, int id, double x, double y, double z,
     double dy = dx;
     double dz = 1.0;
     ths->tag_cb(id, x, y, z, twist, dx, dy, dz, visible);
+}
+
+void FiducialsNode::fiducial_announce(void *t,
+    Integer id, Integer direction, Double world_diagonal,
+    Double x1, Double y1, Double x2, Double y2,
+    Double x3, Double y3, Double x4, Double y4) {
+    ROS_INFO("fiducial: id=%d dir=%d diag=%f (%.2f,%.2f), (%.2f,%.2f), (%.2f,%.2f), (%.2f,%.2f)",
+       id, direction, world_diagonal, x1, y1, x2, y2, x3, y3, x4, y4);
 }
 
 void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
@@ -323,7 +342,6 @@ void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
         IplImage *image = new IplImage(cv_img->image);
         if(fiducials == NULL) {
             ROS_INFO("Got first image! Setting up Fiducials library");
-
 	    // Load up *fiducials_create*:
 	    Fiducials_Create fiducials_create =
 	      Fiducials_Create__one_and_only();
@@ -336,6 +354,7 @@ void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
 	    fiducials_create->log_file_name = log_file.c_str();
 	    fiducials_create->map_base_name = map_file.c_str();
 	    fiducials_create->tag_heights_file_name = tag_height_file.c_str();
+            fiducials_create->fiducial_announce_routine = fiducial_announce;
 
 	    // Create *fiducials* object using first image:
             fiducials = Fiducials__create(image, fiducials_create);
@@ -344,13 +363,14 @@ void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
         Fiducials_Results results = Fiducials__process(fiducials);
 	if (publish_images) {
   	    if (results->map_changed) {
-	      ROS_INFO("+");
 	      image_pub.publish(msg);
             }
-            else {
-              ROS_INFO("-");
-            }
         }
+	if (publish_interesting_images) {
+	  if (results->image_interesting) {
+	    interesting_image_pub.publish(msg);
+	  }
+	}
     } catch(cv_bridge::Exception & e) {
         ROS_ERROR("cv_bridge exception: %s", e.what());
     }
@@ -396,11 +416,16 @@ FiducialsNode::FiducialsNode(ros::NodeHandle & nh) : scale(0.75), tf_sub(tf_buff
     }
 
     nh.param<bool>("publish_images", publish_images, false);
+    nh.param<bool>("publish_interesting_images", publish_interesting_images, 
+		   false);
 
     image_transport::ImageTransport img_transport(nh);
 
     if (publish_images) {
       image_pub = img_transport.advertise("fiducials_images", 1);
+    }
+    if (publish_interesting_images) {
+      interesting_image_pub = img_transport.advertise("interesting_images", 1);
     }
 
     marker_pub = new ros::Publisher(nh.advertise<visualization_msgs::Marker>("fiducials", 1));
