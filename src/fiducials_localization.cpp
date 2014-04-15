@@ -112,6 +112,12 @@ class FiducialsNode {
         double z, double bearing);
     void location_cb(int id, double x, double y, double z, double bearing);
 
+    static void fiducial_announce(void *t,
+    Integer id, Integer direction, Double world_diagonal,
+    Double x1, Double y1, Double x2, Double y2,
+    Double x3, Double y3, Double x4, Double y4);
+
+
     void imageCallback(const sensor_msgs::ImageConstPtr & msg);
 
   public:
@@ -155,6 +161,14 @@ void FiducialsNode::tag_announce(void *t, int id, double x, double y, double z,
     double dy = dx;
     double dz = 1.0;
     ths->tag_cb(id, x, y, z, twist, dx, dy, dz, visible);
+}
+
+void FiducialsNode::fiducial_announce(void *t,
+    Integer id, Integer direction, Double world_diagonal,
+    Double x1, Double y1, Double x2, Double y2,
+    Double x3, Double y3, Double x4, Double y4) {
+    ROS_INFO("fiducial: id=%d dir=%d diag=%f (%.2f,%.2f), (%.2f,%.2f), (%.2f,%.2f), (%.2f,%.2f)",
+       id, direction, world_diagonal, x1, y1, x2, y2, x3, y3, x4, y4);
 }
 
 void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
@@ -340,6 +354,7 @@ void FiducialsNode::imageCallback(const sensor_msgs::ImageConstPtr & msg) {
 	    fiducials_create->log_file_name = log_file.c_str();
 	    fiducials_create->map_base_name = map_file.c_str();
 	    fiducials_create->tag_heights_file_name = tag_height_file.c_str();
+            fiducials_create->fiducial_announce_routine = fiducial_announce;
 
 	    // Create *fiducials* object using first image:
             fiducials = Fiducials__create(image, fiducials_create);
