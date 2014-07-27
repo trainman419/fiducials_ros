@@ -76,6 +76,10 @@ class FiducialsNode {
     // in another node
     bool publish_tf;
 
+
+    // If this is set, continue publishing the last transform if a new one is not available
+    bool publish_last_tf;
+
     // this would only be turned off if we are publishing the markers
     // in another node
     bool publish_markers;
@@ -108,6 +112,9 @@ class FiducialsNode {
     std::string map_file;
     std::string log_file;
 
+    geometry_msgs::TransformStamped transform;
+    ros::Timer timer;
+
     geometry_msgs::Pose scale_position(double x, double y, double z,
         double theta);
     visualization_msgs::Marker createMarker(std::string ns, int id);
@@ -135,6 +142,7 @@ class FiducialsNode {
         double x2, double y2, double x3, double y3);
 
     void imageCallback(const sensor_msgs::ImageConstPtr & msg);
+    void timerCallback(const ros::TimerEvent& te);
 
   public:
     FiducialsNode(ros::NodeHandle &nh);
@@ -252,6 +260,12 @@ void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
     marker_pub->publish(marker);
 }
 
+void FiducialsNode::timerCallback(const ros::TimerEvent& te) {
+    transform.header.stamp = ros::Time::now();
+    if (transform.header.frame_id != "")
+       tf_pub.sendTransform(transform);
+}
+
 tf2::Transform msg_to_tf(geometry_msgs::TransformStamped &msg) {
   return tf2::Transform(
             tf2::Quaternion(
@@ -338,7 +352,7 @@ void FiducialsNode::location_cb(int id, double x, double y, double z,
         // C^-1 = O * M-1
         tf2::Transform odom_correction = (odom_tf * pose.inverse()).inverse();
 
-        geometry_msgs::TransformStamped transform;
+        //geometry_msgs::TransformStamped transform;
         tf2::Vector3 odom_correction_v = odom_correction.getOrigin();
         transform.transform.translation.x = odom_correction_v.getX();
         transform.transform.translation.y = odom_correction_v.getY();
@@ -356,7 +370,7 @@ void FiducialsNode::location_cb(int id, double x, double y, double z,
         //tf2::transformTF2ToMsg(odom_correction, transform, now, world_frame,
             //odom_frame);
 
-        if (publish_tf)
+        if (publish_tf && !publish_last_tf)
             tf_pub.sendTransform(transform);
       } else {
         ROS_ERROR("Can't look up base transform from %s to %s: %s",
@@ -376,7 +390,7 @@ void FiducialsNode::location_cb(int id, double x, double y, double z,
       transform.transform.translation.z = 0.0;
       transform.transform.rotation = tf::createQuaternionMsgFromYaw(tf_yaw);
 
-      if (publish_tf)
+      if (publish_tf && !publish_last_tf)
           tf_pub.sendTransform(transform);
     }
 }
@@ -466,6 +480,7 @@ FiducialsNode::FiducialsNode(ros::NodeHandle & nh) : scale(0.75), tf_sub(tf_buff
 
     nh.param<bool>("publish_images", publish_images, false);
     nh.param<bool>("publish_tf", publish_tf, true);
+    nh.param<bool>("publish_last_tf", publish_last_tf, true);
     nh.param<bool>("publish_markers", publish_markers, true);
     nh.param<bool>("publish_interesting_images", publish_interesting_images, 
 		   false);
@@ -487,6 +502,9 @@ FiducialsNode::FiducialsNode(ros::NodeHandle & nh) : scale(0.75), tf_sub(tf_buff
 
     img_sub = img_transport.subscribe("camera", 1,
                                       &FiducialsNode::imageCallback, this);
+
+    if (publish_last_tf)
+         timer = nh.createTimer(ros::Duration(0.1), &FiducialsNode::timerCallback, this);
 
     ROS_INFO("Fiducials Localization ready");
 }
