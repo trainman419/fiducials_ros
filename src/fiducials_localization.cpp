@@ -49,10 +49,8 @@
 #include <list>
 #include <string>
 
-#include "fiducials/File.h"
-#include "fiducials/Fiducials.h"
-#include "fiducials/List.h"
-#include "fiducials/Logical.h"
+#include "fiducials/File.hpp"
+#include "fiducials/Fiducials.hpp"
 
 #include "fiducials_ros/Fiducial.h"
 
@@ -121,13 +119,13 @@ class FiducialsNode {
 
     static void arc_announce(void *t, int from_id, double from_x,
         double from_y, double from_z, int to_id, double to_x, double to_y,
-        double to_z, double goodness, int in_spanning_tree);
+        double to_z, double goodness, bool in_spanning_tree);
 
     static void tag_announce(void *t, int id, double x, double y, double z,
-        double twist, double diagonal, double distance_per_pixel, int visible,
+        double twist, double diagonal, double distance_per_pixel, bool visible,
         int hop_count);
     void tag_cb(int id, double x, double y, double z, double twist, double dx,
-        double dy, double dz, int visible);
+        double dy, double dz, bool visible);
 
     static void location_announce(void *t, int id, double x, double y,
         double z, double bearing);
@@ -171,11 +169,11 @@ visualization_msgs::Marker FiducialsNode::createMarker(std::string ns, int id) {
 
 void FiducialsNode::arc_announce(void *t, int from_id, double from_x,
     double from_y, double from_z, int to_id, double to_x, double to_y,
-    double to_z, double goodness, int in_spanning_tree) {
+    double to_z, double goodness, bool in_spanning_tree) {
 }
 
 void FiducialsNode::tag_announce(void *t, int id, double x, double y, double z,
-  double twist, double diagonal, double distance_per_pixel, int visible,
+  double twist, double diagonal, double distance_per_pixel, bool visible,
   int hop_count) {
     ROS_INFO("tag_announce:id=%d x=%f y=%f twist=%f",
       id, x, y, twist);
@@ -222,7 +220,7 @@ void FiducialsNode::fiducial_cb(int id, int direction, double world_diagonal,
 
 
 void FiducialsNode::tag_cb(int id, double x, double y, double z, double twist,
-    double dx, double dy, double dz, int visible) {
+    double dx, double dy, double dz, bool visible) {
 
     if (!publish_markers)
        return;
