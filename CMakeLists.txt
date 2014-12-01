@@ -44,6 +44,8 @@ add_executable(fiducials_localization src/fiducials_localization.cpp)
 target_link_libraries(fiducials_localization ${catkin_LIBRARIES}
 ${orocos_kdl_LIBRARIES})
 
+add_dependencies(fiducials_localization fiducials_ros_gencpp)
+
 #############
 ## Install ##
 #############
