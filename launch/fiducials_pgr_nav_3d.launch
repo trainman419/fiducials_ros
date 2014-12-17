@@ -1,0 +1,17 @@
+<launch>
+    <include file="$(find fiducials_ros)/launch/pgr_camera.launch">
+    </include>
+
+    <include file="$(find fiducials_ros)/launch/pgr_pose.launch"/>
+
+    <include file="$(find fiducials_ros)/launch/fiducials_no_odom.launch">
+        <arg name="camera" value="/pgr_camera_node"/>
+	<arg name="image" value="image_raw"/>
+    </include>
+
+    <node name="ros_rpp" pkg="ros_rpp" type="rpp_pose" output="screen">
+       <remap to="/fiducials_localization/vertices" from="/vertices"/>
+       <remap to="/pgr_camera_node/camera_info" from="/camera_info"/>
+       <param name="fiducial_len" type="double" value="0.146"/>
+    </node>
+</launch>
